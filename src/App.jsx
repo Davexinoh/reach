@@ -4,6 +4,7 @@ import CommandPalette from "./components/CommandPalette";
 import Intro from "./pages/Intro";
 import Landing from "./pages/Landing";
 import Onboarding from "./pages/Onboarding";
+import RepoSelect from "./pages/RepoSelect";
 import Map from "./pages/Map";
 import Events from "./pages/Events";
 import EventDetail from "./pages/EventDetail";
@@ -53,12 +54,13 @@ export default function App() {
 
   if (path === "/" || path === "") return <Landing go={go} />;
   if (path === "/enter") return <Onboarding go={go} />;
+  if (path === "/enter/repos") return <RepoSelect go={go} />;
 
   const pkg = path.startsWith("/app/packages/") ? path.split("/").pop() : null;
 
   let page = <Map go={go} />;
   if (path === "/app/events") page = <Events go={go} />;
-  else if (path.startsWith("/app/events/")) page = <EventDetail go={go} />;
+  else if (path.startsWith("/app/events/")) page = <EventDetail go={go} id={decodeURIComponent(path.split("/app/events/")[1] || "")} />;
   else if (path === "/app/repos") page = <Repositories go={go} />;
   else if (path === "/app/packages") page = <Packages go={go} />;
   else if (pkg && path.startsWith("/app/packages/")) page = <PackageDetail name={pkg} go={go} />;

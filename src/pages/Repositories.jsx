@@ -1,11 +1,25 @@
-import { repoStats } from "../data/engine";
+import { useEffect, useState } from "react";
+import { api } from "../api.js";
 
 export default function Repositories({ go }) {
-  const rows = repoStats();
+  const [rows, setRows] = useState(null);
+  useEffect(() => {
+    api.repos().then((d) => setRows(d.repos || []));
+  }, []);
+  if (!rows) return <div className="page">Loading repositories…</div>;
+  if (!rows.length) {
+    return (
+      <div className="page">
+        <h1>Your graph is empty.</h1>
+        <p className="sub">Connect a GitHub repository to start tracing.</p>
+        <button className="btn primary" onClick={() => go("/enter")}>Sign in with GitHub</button>
+      </div>
+    );
+  }
   return (
     <div className="page">
       <h1>Repositories</h1>
-      <p className="sub">Lockfiles mapped into the graph. Exposure is computed from production reach.</p>
+      <p className="sub">Exposure is computed from OSV + reach, not a static list.</p>
       <table className="table">
         <thead>
           <tr>

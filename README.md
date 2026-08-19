@@ -8,6 +8,22 @@ Graph layer: [HydraDB](https://github.com/hydra-db/hydradb)
 
 A scanner tells you a package is vulnerable. Reach tells you **what that vulnerability can reach** — applications, services, repositories, production — and **the path**.
 
+## GitHub OAuth (required for real repos)
+
+1. [github.com/settings/developers](https://github.com/settings/developers) → **OAuth Apps** → **New OAuth App**
+2. Application name: `Reach`
+3. Homepage: `https://reach-production-0725.up.railway.app`
+4. Callback: `https://reach-production-0725.up.railway.app/api/auth/github/callback`
+5. Set on Railway (and locally):
+
+```
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
+PUBLIC_URL=https://reach-production-0725.up.railway.app
+```
+
+Sign in with GitHub → pick up to 8 repos → Reach reads lockfiles and queries [OSV](https://osv.dev) for real CVEs.
+
 ## Run
 
 ```bash

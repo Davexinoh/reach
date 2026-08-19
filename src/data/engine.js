@@ -28,7 +28,11 @@ function dependents(edges, versionId) {
   return [...found];
 }
 
-export function traceVulnerability(vulnId = "vuln:cve-2026-4418", edges = EDGES) {
+function lookupIn(nodes, id) {
+  return nodes.find((n) => n.id === id);
+}
+
+export function traceVulnerability(vulnId = "vuln:cve-2026-4418", edges = EDGES, nodes = NODES) {
   const affectedVersions = outgoing(edges, vulnId, "affects").map((e) => e[1]);
   const paths = [];
 
@@ -73,7 +77,7 @@ export function traceVulnerability(vulnId = "vuln:cve-2026-4418", edges = EDGES)
   }
 
   const unique = dedupePaths(paths);
-  return summarize(vulnId, unique);
+  return summarize(vulnId, unique, nodes);
 }
 
 function shortestDepends(edges, from, target) {
@@ -104,17 +108,17 @@ function dedupePaths(paths) {
   });
 }
 
-function summarize(vulnId, paths) {
+function summarize(vulnId, paths, nodes = NODES) {
   const apps = uniq(paths.map((p) => p.app).filter(Boolean));
   const services = uniq(paths.map((p) => p.service).filter(Boolean));
   const repos = uniq(paths.map((p) => p.repo).filter(Boolean));
   const prodServices = uniq(
-    paths.filter((p) => nodeById(p.env)?.production).map((p) => p.service).filter(Boolean)
+    paths.filter((p) => lookupIn(nodes, p.env)?.production).map((p) => p.service).filter(Boolean)
   );
   const prodApps = uniq(
-    paths.filter((p) => nodeById(p.env)?.production).map((p) => p.app).filter(Boolean)
+    paths.filter((p) => lookupIn(nodes, p.env)?.production).map((p) => p.app).filter(Boolean)
   );
-  const vuln = nodeById(vulnId);
+  const vuln = lookupIn(nodes, vulnId);
   const exposure = exposureRank(vuln?.cvss || 0, prodServices.length, apps.length);
 
   return {
@@ -144,107 +148,146 @@ export function exposureRank(cvss, prod, apps) {
   return "safe";
 }
 
-export function simulateUpgrade(fromVersion, toVersion, edges = EDGES) {
-  const next = edges.map((e) => {
-    if (e[2] === "uses" && e[1] === fromVersion) return [e[0], toVersion, "uses"];
-    if (e[2] === "depends_on" && e[0] === fromVersion) {
+export function simulateUpgrade(fromVersion, toVersion, edges = EDGES, nodes = NODES) {
+  const hasTo = nodes.some((n) => n.id === toVersion);
+  const next = edges
+    .map((e) => {
+      if (e[2] === "uses" && e[1] === fromVersion) {
+        return hasTo ? [e[0], toVersion, "uses"] : null;
+      }
+      if (e[2] === "depends_on" && e[1] === fromVersion) {
+        return hasTo ? [e[0], toVersion, "depends_on"] : e;
+      }
       return e;
-    }
-    if (e[2] === "depends_on" && e[1] === fromVersion) return [e[0], toVersion, "depends_on"];
-    return e;
-  });
+    })
+    .filter(Boolean);
+  const vulns = nodes.filter((n) => n.kind === "vuln");
+  const vulnId = vulns[0]?.id;
   return {
-    before: traceVulnerability("vuln:cve-2026-4418", edges),
-    after: traceVulnerability("vuln:cve-2026-4418", next),
+    before: vulnId ? traceVulnerability(vulnId, edges, nodes) : emptyTrace(),
+    after: vulnId ? traceVulnerability(vulnId, next, nodes) : emptyTrace(),
     edges: next,
   };
 }
 
-export function repoStats(edges = EDGES) {
-  return NODES.filter((n) => n.kind === "repo").map((repo) => {
+function emptyTrace() {
+  return {
+    vulnId: null,
+    vuln: null,
+    paths: [],
+    counts: { apps: 0, services: 0, prodServices: 0, prodApps: 0, repos: 0, paths: 0 },
+    apps: [],
+    services: [],
+    prodServices: [],
+    repos: [],
+    exposure: "safe",
+  };
+}
+
+export function repoStats(nodes = NODES, edges = EDGES) {
+  const vulns = nodes.filter((n) => n.kind === "vuln");
+  return nodes.filter((n) => n.kind === "repo").map((repo) => {
     const apps = outgoing(edges, repo.id, "contains").map((e) => e[1]);
     const versions = apps.flatMap((a) => outgoing(edges, a, "uses").map((e) => e[1]));
-    const pkgs = new Set(versions.map((v) => nodeById(v)?.package).filter(Boolean));
-    const reach = traceVulnerability("vuln:cve-2026-4418", edges);
-    const hit = reach.repos.includes(repo.id);
-    const prod = reach.paths.some((p) => p.repo === repo.id && nodeById(p.env)?.production);
+    const pkgs = new Set(versions.map((v) => lookupIn(nodes, v)?.package).filter(Boolean));
+    let exposure = "safe";
+    let production = false;
+    for (const v of vulns) {
+      const reach = traceVulnerability(v.id, edges, nodes);
+      if (reach.repos.includes(repo.id)) {
+        const prod = reach.paths.some((p) => p.repo === repo.id && lookupIn(nodes, p.env)?.production);
+        production = production || prod;
+        exposure = prod ? (v.cvss >= 9 ? "critical" : "high") : "low";
+      }
+    }
     return {
       ...repo,
       apps: apps.length,
       packages: pkgs.size,
-      deps: versions.length + 4,
-      exposure: hit ? (prod ? "critical" : "low") : "safe",
-      production: prod,
+      deps: versions.length,
+      exposure,
+      production,
     };
   });
 }
 
-export function packageStats(edges = EDGES) {
-  return NODES.filter((n) => n.kind === "package").map((pkg) => {
-    const versions = NODES.filter((n) => n.kind === "version" && n.package === pkg.name);
+export function packageStats(nodes = NODES, edges = EDGES) {
+  const vulns = nodes.filter((n) => n.kind === "vuln");
+  return nodes.filter((n) => n.kind === "package").map((pkg) => {
+    const versions = nodes.filter((n) => n.kind === "version" && n.package === pkg.name);
     const usedBy = versions.flatMap((v) => incoming(edges, v.id, "uses").map((e) => e[0]));
-    const reach = traceVulnerability("vuln:cve-2026-4418", edges);
-    const inReach = reach.paths.some((p) =>
-      p.chain.some((id) => nodeById(id)?.package === pkg.name)
-    );
-    const prod = reach.paths.some(
-      (p) => nodeById(p.env)?.production && p.chain.some((id) => nodeById(id)?.package === pkg.name)
-    );
-    const vuln = versions.some((v) =>
-      incoming(edges, v.id, "affects").length
-    );
+    let exposure = "safe";
+    let production = false;
+    const vulnHere = versions.some((v) => incoming(edges, v.id, "affects").length);
+    for (const v of vulns) {
+      const reach = traceVulnerability(v.id, edges, nodes);
+      const inReach = reach.paths.some((p) =>
+        p.chain.some((id) => lookupIn(nodes, id)?.package === pkg.name)
+      );
+      const prod = reach.paths.some(
+        (p) => lookupIn(nodes, p.env)?.production && p.chain.some((id) => lookupIn(nodes, id)?.package === pkg.name)
+      );
+      if (prod) production = true;
+      if (vulnHere && prod) exposure = "critical";
+      else if (vulnHere) exposure = exposure === "safe" ? "high" : exposure;
+      else if (inReach && exposure === "safe") exposure = "low";
+    }
     return {
       ...pkg,
       versions: versions.map((v) => v.version),
       dependents: new Set(usedBy).size,
-      production: prod,
-      exposure: vuln && prod ? "critical" : vuln ? "high" : inReach ? "low" : "safe",
+      production,
+      exposure,
     };
   });
 }
 
-export function events() {
-  const t = traceVulnerability();
-  return [
-    {
-      id: t.vulnId,
-      name: "vulnerable-lib@2.4.1",
-      cve: "CVE-2026-4418",
-      cvss: 9.8,
-      ...t,
-    },
-  ];
+export function events(nodes = NODES, edges = EDGES) {
+  return nodes
+    .filter((n) => n.kind === "vuln")
+    .map((v) => ({
+      id: v.id,
+      name: v.affected || v.name,
+      cve: v.cve || v.name,
+      cvss: v.cvss || 0,
+      ...traceVulnerability(v.id, edges, nodes),
+    }));
 }
 
-export function searchAll(q) {
+export function searchAll(q, nodes = NODES) {
   const s = q.trim().toLowerCase();
   if (!s) return [];
-  return NODES.filter((n) =>
-    [n.name, n.version, n.id, n.title, n.cve].filter(Boolean).join(" ").toLowerCase().includes(s)
-  ).slice(0, 12);
+  return nodes
+    .filter((n) =>
+      [n.name, n.version, n.id, n.title, n.cve].filter(Boolean).join(" ").toLowerCase().includes(s)
+    )
+    .slice(0, 12);
 }
 
-export function command(text, edges = EDGES) {
+export function command(text, edges = EDGES, nodes = NODES) {
   const q = text.toLowerCase();
+  const ev = events(nodes, edges);
+  const first = ev[0];
   if (q.includes("critical") && q.includes("production")) {
-    return { type: "events", title: "Critical events that reach production", data: events() };
+    return { type: "events", title: "Critical events that reach production", data: ev };
   }
   if (q.includes("cve") || q.includes("trace") || q.includes("vulnerable")) {
-    return { type: "trace", title: "Trace CVE-2026-4418", data: traceVulnerability(undefined, edges) };
-  }
-  if (q.includes("lodash")) {
-    return { type: "empty", title: "Nothing depends on lodash in this graph." };
+    return { type: "trace", title: first ? `Trace ${first.cve}` : "No reach events", data: first || emptyTrace() };
   }
   if (q.includes("upgrade") || q.includes("remove") || q.includes("break")) {
-    return { type: "simulate", title: "Simulate payments-lib upgrade", data: simulateUpgrade("ver:payments-lib@5.2.0", "ver:payments-lib@5.2.1", edges) };
+    const from = nodes.find((n) => n.kind === "version" && incoming(edges, n.id, "affects").length);
+    const alt = from && nodes.find((n) => n.kind === "version" && n.package === from.package && n.id !== from.id);
+    return {
+      type: "simulate",
+      title: "Simulate change",
+      data: from ? simulateUpgrade(from.id, alt?.id || from.id, edges, nodes) : null,
+    };
   }
-  if (q.includes("maintain") || q.includes("developer")) {
-    return { type: "package", title: "payments-lib", id: "pkg:payments-lib" };
+  if (q.includes("depend") || q.includes("maintain")) {
+    const pkg = nodes.find((n) => n.kind === "package");
+    return { type: "package", title: pkg?.name || "packages", id: pkg?.id };
   }
-  if (q.includes("depend")) {
-    return { type: "package", title: "payments-lib", id: "pkg:payments-lib" };
-  }
-  return { type: "trace", title: "Trace CVE-2026-4418", data: traceVulnerability(undefined, edges) };
+  return { type: first ? "trace" : "events", title: first ? `Trace ${first.cve}` : "No reach events", data: first || ev };
 }
 
 function uniq(arr) {

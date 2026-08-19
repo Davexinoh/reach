@@ -1,5 +1,12 @@
 import { useMemo, useState } from "react";
-import { displayEdges, displayId, nodeById } from "../data/graph.js";
+import { displayEdges as harborEdges, displayId as harborDisplay, nodeById } from "../data/graph.js";
+
+function disp(id, catalog) {
+  const n = catalog?.[id] || nodeById(id);
+  if (!n) return id;
+  if (n.kind === "version") return `pkg:${n.package}`;
+  return n.id;
+}
 
 const LAYERS = [
   { key: "vuln", label: "Reach event", y: 56 },
@@ -52,6 +59,8 @@ function shortLabel(node) {
 
 export default function GraphCanvas({
   nodes,
+  catalog,
+  rawEdges,
   highlight = [],
   dimOthers = false,
   onSelect,
@@ -59,12 +68,22 @@ export default function GraphCanvas({
   compact = false,
 }) {
   const [hover, setHover] = useState(null);
-  const hi = useMemo(() => new Set(highlight.map(displayId)), [highlight]);
+  const hi = useMemo(() => new Set(highlight.map((id) => disp(id, catalog))), [highlight, catalog]);
 
   const visible = useMemo(() => {
-    const ids = new Set(nodes.map(displayId));
-    return [...ids].map(nodeById).filter(Boolean);
-  }, [nodes]);
+    const ids = new Set(nodes.map((id) => disp(id, catalog)));
+    let list = [...ids].map((id) => catalog?.[id] || nodeById(id)).filter(Boolean);
+    const pkgs = list.filter((n) => n.kind === "package");
+    if (pkgs.length > 18) {
+      const keep = new Set(pkgs.filter((n) => hi.has(n.id)).map((n) => n.id));
+      for (const p of pkgs) {
+        if (keep.size >= 18) break;
+        keep.add(p.id);
+      }
+      list = list.filter((n) => n.kind !== "package" || keep.has(n.id));
+    }
+    return list;
+  }, [nodes, catalog, hi]);
 
   const width = compact ? 900 : 1280;
   const height = compact ? 420 : 700;
@@ -87,8 +106,20 @@ export default function GraphCanvas({
   }, [visible, compact, width]);
 
   const edges = useMemo(() => {
-    return displayEdges().filter(([a, b]) => positions[a] && positions[b]);
-  }, [positions]);
+    const src = rawEdges || harborEdges();
+    const collapsed = [];
+    const seen = new Set();
+    for (const [from, to, rel] of src) {
+      const a = disp(from, catalog);
+      const b = disp(to, catalog);
+      if (a === b) continue;
+      const key = `${a}>${b}>${rel}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      collapsed.push([a, b, rel]);
+    }
+    return collapsed.filter(([a, b]) => positions[a] && positions[b]);
+  }, [positions, rawEdges, catalog]);
 
   const neighbor = hover
     ? new Set(
@@ -146,7 +177,7 @@ export default function GraphCanvas({
         const id = node.id;
         const active = hi.size ? hi.has(id) : selected === id;
         const dim = dimOthers && hi.size && !hi.has(id);
-        const hot = node.kind === "vuln" || (node.kind === "package" && node.name === "vulnerable-lib" && hi.has(id));
+        const hot = node.kind === "vuln" || (node.kind === "package" && hi.has(id) && dimOthers);
         return (
           <g
             key={id}

@@ -1,23 +1,35 @@
-import { useMemo, useState } from "react";
-import { nodeById } from "../data/graph.js";
-import { traceVulnerability } from "../data/engine.js";
+import { useEffect, useState } from "react";
+import { api } from "../api.js";
 
-export default function EventDetail({ go }) {
-  const t = useMemo(() => traceVulnerability(), []);
+export default function EventDetail({ go, id }) {
+  const [t, setT] = useState(null);
   const [i, setI] = useState(0);
   const [plan, setPlan] = useState(false);
+
+  useEffect(() => {
+    api.trace(id).then(setT);
+  }, [id]);
+
+  if (!t) return <div className="page">Loading event…</div>;
+  if (t.empty || !t.paths) {
+    return (
+      <div className="page">
+        <h1>No reach event</h1>
+        <p className="sub">Connect repositories and scan before tracing.</p>
+      </div>
+    );
+  }
+
   const path = t.paths[i];
-  const prod = t.paths.filter((p) => nodeById(p.env)?.production).length;
-  const staging = t.paths.filter((p) => p.env?.includes("staging")).length;
-  const dev = t.paths.filter((p) => p.env?.includes("dev")).length;
+  const prod = t.counts?.prodServices || 0;
 
   return (
     <div className="page">
       <div className="k">Reach event</div>
-      <h1>vulnerable-lib@2.4.1</h1>
+      <h1>{t.vuln?.affected || t.vuln?.name}</h1>
       <p className="sub">
-        <span className="badge critical">Critical</span>{" "}
-        CVE-2026-4418 · CVSS 9.8 · {t.exposure}
+        <span className={"badge " + (t.exposure || "low")}>{t.exposure}</span>{" "}
+        {t.vuln?.cve || t.vulnId} · CVSS {t.vuln?.cvss}
       </p>
       <div className="metrics">
         <div className="metric"><span>Reachable applications</span><strong className="tabular">{t.counts.apps}</strong></div>
@@ -29,15 +41,9 @@ export default function EventDetail({ go }) {
         <div className="card">
           <div className="k">How it reaches production</div>
           <div className="path" style={{ marginTop: 12 }}>
-            {path?.chain.map((id) => {
-              const n = nodeById(id);
-              return (
-                <div key={id} className="active">
-                  {n?.name}
-                  {n?.version ? "@" + n.version : ""}
-                </div>
-              );
-            })}
+            {path?.chain.map((cid) => (
+              <div key={cid} className="active">{cid.replace(/^[^:]+:/, "")}</div>
+            ))}
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 14, alignItems: "center" }}>
             <button className="btn" onClick={() => setI((x) => (x + t.paths.length - 1) % t.paths.length)}>Previous path</button>
@@ -47,21 +53,14 @@ export default function EventDetail({ go }) {
         </div>
         <div className="card">
           <div className="k">Exposure</div>
-          <div className="row"><span>Production</span><b className="tabular">{prod} paths</b></div>
-          <div className="row"><span>Internal / staging</span><b className="tabular">{staging} paths</b></div>
-          <div className="row"><span>Development</span><b className="tabular">{dev} paths</b></div>
+          <div className="row"><span>Production services</span><b className="tabular">{prod}</b></div>
           <div className="k" style={{ marginTop: 18 }}>Recommended action</div>
-          <h2 style={{ fontSize: 18, margin: "10px 0" }}>Upgrade payments-lib</h2>
-          <p className="sub">5.2.0 → 5.2.1 drops vulnerable-lib@2.4.1 from Payments and Checkout.</p>
+          <p className="sub">Upgrade or replace the affected version, then re-trace.</p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button className="btn primary" onClick={() => go("/app/simulate")}>Simulate upgrade</button>
+            <button className="btn primary" onClick={() => go("/app/simulate")}>Simulate change</button>
             <button className="btn" onClick={() => setPlan(true)}>Create remediation plan</button>
           </div>
-          {plan && (
-            <p className="sub" style={{ marginTop: 12 }}>
-              Plan: bump payments-lib in payments-api, checkout-web, orders-service, then re-trace. Analytics still uses http-client@3.1.0 in Development only.
-            </p>
-          )}
+          {plan && <p className="sub" style={{ marginTop: 12 }}>Bump the resolved version in the lockfile of each listed repo, then rebuild the graph.</p>}
         </div>
       </div>
     </div>

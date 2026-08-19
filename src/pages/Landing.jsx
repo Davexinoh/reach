@@ -41,7 +41,7 @@ export default function Landing({ go }) {
         <Field />
         <div className="hero-top" style={{ position: "relative", zIndex: 1 }}>
           <div className="brand">REACH</div>
-          <button className="btn ghost" onClick={() => go("/enter")}>Explore demo</button>
+          <button className="btn ghost" onClick={() => { window.location.href = "/api/auth/github"; }}>Sign in with GitHub</button>
         </div>
         <div style={{ position: "relative", zIndex: 1 }}>
           <h1 className="reveal">
@@ -53,8 +53,8 @@ export default function Landing({ go }) {
             vulnerabilities propagate through dependencies, services, applications, and production.
           </p>
           <div className="hero-cta reveal d3">
-            <button className="btn primary" onClick={() => go("/enter")}>Explore the Graph</button>
-            <button className="btn" onClick={() => go("/enter")}>Explore demo</button>
+            <button className="btn primary" onClick={() => { window.location.href = "/api/auth/github"; }}>Sign in with GitHub</button>
+            <button className="btn" onClick={() => go("/enter")}>Connect a repository</button>
           </div>
           <div className="mini-graph reveal d3">
             <GraphCanvas nodes={MINI} highlight={HI} dimOthers compact />

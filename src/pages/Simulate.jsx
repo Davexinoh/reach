@@ -1,43 +1,42 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import GraphCanvas from "../components/GraphCanvas";
-import { displayId } from "../data/graph.js";
-import { simulateUpgrade } from "../data/engine.js";
+import { api } from "../api.js";
 
 export default function Simulate() {
-  const [action, setAction] = useState("upgrade");
-  const sim = useMemo(
-    () => simulateUpgrade("ver:payments-lib@5.2.0", "ver:payments-lib@5.2.1"),
-    []
-  );
-  const beforeHi = sim.before.paths[0]?.chain.map(displayId) || [];
-  const afterHi = sim.after.paths.filter((p) => p.env?.includes("prod")).flatMap((p) => p.chain.map(displayId));
-  const nodes = [
-    "vuln:cve-2026-4418",
-    "pkg:vulnerable-lib",
-    "pkg:payments-lib",
-    "pkg:checkout-sdk",
-    "pkg:http-client",
-    "app:payments",
-    "app:checkout",
-    "app:orders",
-    "app:analytics",
-    "svc:payments-api",
-    "svc:orders-service",
-    "env:prod-us",
-    "env:dev",
-  ];
+  const [sim, setSim] = useState(null);
+  const [graph, setGraph] = useState(null);
+
+  useEffect(() => {
+    Promise.all([api.simulate(), api.graph()]).then(([s, g]) => {
+      setSim(s);
+      setGraph(g);
+    });
+  }, []);
+
+  if (!sim || !graph) return <div className="page">Computing simulation…</div>;
+  if (sim.empty) {
+    return (
+      <div className="page">
+        <h1>Nothing to simulate</h1>
+        <p className="sub">Load a graph with a known vulnerable version first.</p>
+      </div>
+    );
+  }
+
+  const catalog = Object.fromEntries((graph.nodes || []).map((n) => [n.id, n]));
+  const nodes = (graph.nodes || [])
+    .filter((n) => ["vuln", "package", "app", "service", "env"].includes(n.kind))
+    .map((n) => n.id)
+    .slice(0, 40);
+  const beforeHi = (sim.before?.paths?.[0]?.chain || []).map((id) => catalog[id]?.kind === "version" ? `pkg:${catalog[id].package}` : id);
+  const afterHi = (sim.after?.paths || [])
+    .filter((p) => catalog[p.env]?.production)
+    .flatMap((p) => p.chain.map((id) => catalog[id]?.kind === "version" ? `pkg:${catalog[id].package}` : id));
 
   return (
     <div className="page">
       <h1>Simulate change</h1>
-      <p className="sub">What happens if you change payments-lib? The graph is the result, not a caption.</p>
-      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-        {["upgrade", "remove", "replace", "downgrade"].map((a) => (
-          <button key={a} className={"btn" + (action === a ? " primary" : "")} onClick={() => setAction(a)}>
-            {a} dependency
-          </button>
-        ))}
-      </div>
+      <p className="sub">What happens if the affected version is upgraded or dropped.</p>
       <div className="split">
         <div className="card">
           <div className="k">Before · {sim.before.exposure}</div>
@@ -45,32 +44,16 @@ export default function Simulate() {
             <span>Production services</span>
             <strong className="tabular">{sim.before.counts.prodServices}</strong>
           </div>
-          <GraphCanvas nodes={nodes} highlight={beforeHi} dimOthers compact />
+          <GraphCanvas nodes={nodes} catalog={catalog} rawEdges={graph.edges} highlight={beforeHi} dimOthers compact />
         </div>
         <div className="card">
-          <div className="k">After · {action === "upgrade" ? sim.after.exposure : sim.after.exposure}</div>
+          <div className="k">After · {sim.after.exposure}</div>
           <div className="metric" style={{ marginTop: 12 }}>
             <span>Production services</span>
-            <strong className="tabular">{action === "upgrade" ? sim.after.counts.prodServices : sim.after.counts.prodServices}</strong>
+            <strong className="tabular">{sim.after.counts.prodServices}</strong>
           </div>
-          <GraphCanvas
-            nodes={nodes}
-            highlight={action === "upgrade" ? afterHi : beforeHi}
-            dimOthers
-            compact
-          />
+          <GraphCanvas nodes={nodes} catalog={catalog} rawEdges={graph.edges} highlight={afterHi} dimOthers compact />
         </div>
-      </div>
-      <div className="card" style={{ marginTop: 12 }}>
-        <div className="k">Exposure</div>
-        <p>
-          {sim.before.exposure.toUpperCase()} → {action === "upgrade" ? sim.after.exposure.toUpperCase() : sim.before.exposure.toUpperCase()}
-        </p>
-        <p className="sub">
-          {action === "upgrade"
-            ? "http-client@3.1.0 on Analytics may still carry the library in Development."
-            : "This demo computes the payments-lib 5.2.0 → 5.2.1 upgrade. Other actions share the same graph engine."}
-        </p>
       </div>
     </div>
   );
