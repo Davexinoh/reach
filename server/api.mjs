@@ -76,11 +76,11 @@ export function reachApi() {
           hydra,
           hydraUrl: hydraBase(),
           hydraNodes,
-          ingested: Boolean(session?.graph?.hydra || session?.demo && hydra),
+          ingested: Boolean(session?.graph?.hydra),
           engine: "reach",
           githubConfigured: Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
           user: session?.user || null,
-          graph: session?.graph ? "github" : session?.demo ? "demo" : null,
+          graph: session?.graph && !session?.demo ? "github" : session?.demo ? "demo" : null,
         });
       }
 
@@ -167,6 +167,7 @@ export function reachApi() {
           createSession(res, { user: null, token: null }, { secure: origin.startsWith("https") });
         s.graph = { nodes: NODES, edges: EDGES, errors: [], stats: { source: "harborline" } };
         s.demo = true;
+        s.source = "demo";
         saveSession(s);
         return send(res, 200, { ok: true, source: "demo" });
       }

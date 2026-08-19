@@ -97,7 +97,7 @@ export async function ingestGraph(nodes, edges) {
   for (const batch of chunks(nodeRows, 80)) {
     last = await hydraQuery(
       `UNWIND $rows AS row
-       MERGE (n:Node {id: row.id})
+       MERGE (n {id: row.id})
        SET n.kind = row.kind, n.name = row.name`,
       { rows: batch }
     );
@@ -116,7 +116,7 @@ export async function ingestGraph(nodes, edges) {
     for (const batch of chunks(rows, 80)) {
       last = await hydraQuery(
         `UNWIND $rows AS row
-         MATCH (s:Node {id: row.sid}), (t:Node {id: row.tid})
+         MATCH (s {id: row.sid}), (t {id: row.tid})
          MERGE (s)-[:${type}]->(t)`,
         { rows: batch }
       );
@@ -133,7 +133,7 @@ export async function ingestGraph(nodes, edges) {
 }
 
 export async function hydraStats() {
-  const res = await hydraQuery("MATCH (n:Node) RETURN count(n) AS nodes");
+  const res = await hydraQuery("MATCH (n) RETURN count(n) AS nodes");
   const rows = res?.rows || res?.data || res?.result || [];
   const first = Array.isArray(rows) ? rows[0] : null;
   const raw = first?.nodes ?? first?.[0] ?? first?.value ?? 0;
@@ -144,8 +144,8 @@ export async function hydraStats() {
 /** Reverse-traverse from a vulnerability through HydraDB OpenCypher. */
 export async function reverseReach(vulnId) {
   const res = await hydraQuery(
-    `MATCH (v:Node {id: $id})<-[:AFFECTS]-(ver:Node)
-     OPTIONAL MATCH (src:Node)-[:DEPENDS_ON*0..6]->(ver)
+    `MATCH (v {id: $id})<-[:AFFECTS]-(ver)
+     OPTIONAL MATCH (src)-[:DEPENDS_ON*0..6]->(ver)
      RETURN ver.id AS version, ver.name AS versionName,
             src.id AS source, src.name AS sourceName, src.kind AS sourceKind
      LIMIT 200`,
