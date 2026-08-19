@@ -108,7 +108,11 @@ export async function ingestGraph(nodes, edges) {
     const type = REL[rel];
     if (!type || !byId.has(from) || !byId.has(to)) continue;
     if (!grouped.has(type)) grouped.set(type, []);
-    grouped.get(type).push({ sid: nid(from), tid: nid(to) });
+    grouped.get(type).push({
+      sid: nid(from),
+      tid: nid(to),
+      rid: nid(`${from}|${rel}|${to}`),
+    });
   }
 
   let statements = 0;
@@ -116,8 +120,8 @@ export async function ingestGraph(nodes, edges) {
     for (const batch of chunks(rows, 80)) {
       last = await hydraQuery(
         `UNWIND $rows AS row
-         MATCH (s {id: row.sid}), (t {id: row.tid})
-         MERGE (s)-[:${type}]->(t)`,
+         MATCH (s:Node {id: row.sid}), (t:Node {id: row.tid})
+         CREATE (s)-[:${type} {id: row.rid}]->(t)`,
         { rows: batch }
       );
       statements += batch.length;
@@ -133,7 +137,7 @@ export async function ingestGraph(nodes, edges) {
 }
 
 export async function hydraStats() {
-  const res = await hydraQuery("MATCH (n) RETURN count(n) AS nodes");
+  const res = await hydraQuery("MATCH (n:Node) RETURN count(*) AS nodes");
   const rows = res?.rows || res?.data || res?.result || [];
   const first = Array.isArray(rows) ? rows[0] : null;
   const raw = first?.nodes ?? first?.[0] ?? first?.value ?? 0;
