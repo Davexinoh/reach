@@ -145,21 +145,48 @@ export async function hydraStats() {
   return { nodes, raw: res };
 }
 
+function queryRows(res) {
+  return res?.rows || res?.data || res?.result || [];
+}
+
 /** Reverse-traverse from a vulnerability through HydraDB OpenCypher. */
 export async function reverseReach(vulnId) {
-  const res = await hydraQuery(
-    `MATCH (v {id: $id})-[:AFFECTS]->(ver)
-     OPTIONAL MATCH (src)-[:DEPENDS_ON*1..6]->(ver)
-     RETURN ver.id AS version, ver.name AS versionName,
-            src.id AS source, src.name AS sourceName, src.kind AS sourceKind
-     LIMIT 200`,
+  const affected = await hydraQuery(
+    "MATCH (v {id: $id})-[:AFFECTS]->(ver) RETURN ver.id AS version, ver.name AS versionName LIMIT 50",
     { id: nid(vulnId) }
   );
+  const versions = queryRows(affected);
+  const rows = [];
+  for (const ver of versions) {
+    const vid = typeof ver.version === "object" && ver.version && "value" in ver.version
+      ? Number(ver.version.value)
+      : Number(ver.version ?? ver[0]?.value ?? ver[0]);
+    if (!Number.isFinite(vid)) continue;
+    const name = ver.versionName?.value ?? ver.versionName ?? null;
+    const deps = await hydraQuery(
+      "MATCH (ver {id: $vid})<-[:DEPENDS_ON*1..6]-(src) RETURN src.id AS source, src.name AS sourceName, src.kind AS sourceKind LIMIT 80",
+      { vid }
+    );
+    const depRows = queryRows(deps);
+    if (!depRows.length) {
+      rows.push({ version: vid, versionName: name, source: null, sourceName: null, sourceKind: null });
+      continue;
+    }
+    for (const d of depRows) {
+      rows.push({
+        version: vid,
+        versionName: name,
+        source: d.source?.value ?? d.source,
+        sourceName: d.sourceName?.value ?? d.sourceName,
+        sourceKind: d.sourceKind?.value ?? d.sourceKind,
+      });
+    }
+  }
   return {
     source: "hydradb",
     vuln: vulnId,
-    query: "MATCH (v)<-[:AFFECTS]-(ver) OPTIONAL MATCH (src)-[:DEPENDS_ON*0..6]->(ver)",
-    rows: res?.rows || res?.data || [],
-    bookmark: res?.bookmark || null,
+    query: "MATCH (v)-[:AFFECTS]->(ver); MATCH (ver)<-[:DEPENDS_ON*1..6]-(src)",
+    rows,
+    bookmark: affected?.bookmark || null,
   };
 }
