@@ -1,4 +1,4 @@
-import { NODES } from "../data/graph";
+import { NODES } from "../data/graph.js";
 import { packageStats, traceVulnerability } from "../data/engine";
 
 export default function PackageDetail({ name, go }) {

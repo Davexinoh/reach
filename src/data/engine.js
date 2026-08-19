@@ -1,4 +1,4 @@
-import { EDGES, NODES, nodeById } from "./graph";
+import { EDGES, NODES, nodeById } from "./graph.js";
 
 export function cloneGraph(edges = EDGES) {
   return edges.map((e) => [...e]);
@@ -237,6 +237,9 @@ export function command(text, edges = EDGES) {
   }
   if (q.includes("upgrade") || q.includes("remove") || q.includes("break")) {
     return { type: "simulate", title: "Simulate payments-lib upgrade", data: simulateUpgrade("ver:payments-lib@5.2.0", "ver:payments-lib@5.2.1", edges) };
+  }
+  if (q.includes("maintain") || q.includes("developer")) {
+    return { type: "package", title: "payments-lib", id: "pkg:payments-lib" };
   }
   if (q.includes("depend")) {
     return { type: "package", title: "payments-lib", id: "pkg:payments-lib" };

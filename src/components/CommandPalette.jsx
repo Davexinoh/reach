@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { command, searchAll } from "../data/engine";
+import { api } from "../api.js";
+import { searchAll } from "../data/engine.js";
 
 const SUGGEST = [
   "What critical vulnerabilities can reach production?",
@@ -14,9 +15,25 @@ export default function CommandPalette({ open, onClose, onResult }) {
   const [i, setI] = useState(0);
   const results = useMemo(() => {
     if (!q) return SUGGEST.map((s) => ({ type: "suggest", title: s }));
-    const hits = searchAll(q).map((n) => ({ type: "node", title: n.name + (n.version ? "@" + n.version : ""), id: n.id, kind: n.kind }));
+    const hits = searchAll(q).map((n) => ({
+      type: "node",
+      title: n.name + (n.version ? "@" + n.version : ""),
+      id: n.id,
+    }));
     return hits.length ? hits : [{ type: "run", title: q }];
   }, [q]);
+
+  async function run(item) {
+    if (!item) return;
+    const text = item.title;
+    try {
+      const res = await api.command(text);
+      onResult(res);
+    } catch {
+      onResult({ type: "trace" });
+    }
+    onClose();
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -32,20 +49,26 @@ export default function CommandPalette({ open, onClose, onResult }) {
 
   if (!open) return null;
 
-  function run(item) {
-    if (!item) return;
-    const text = item.type === "suggest" || item.type === "run" ? item.title : item.title;
-    onResult(command(text));
-    onClose();
-  }
-
   return (
     <div className="cmd-overlay" onClick={onClose}>
       <div className="cmd" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Ask Reach">
-        <input autoFocus placeholder="What do you want to trace?" value={q} onChange={(e) => { setQ(e.target.value); setI(0); }} />
+        <input
+          autoFocus
+          placeholder="What do you want to trace?"
+          value={q}
+          onChange={(e) => {
+            setQ(e.target.value);
+            setI(0);
+          }}
+        />
         <ul>
           {results.map((r, idx) => (
-            <li key={r.title + idx} className={idx === i ? "on" : ""} onMouseEnter={() => setI(idx)} onClick={() => run(r)}>
+            <li
+              key={r.title + idx}
+              className={idx === i ? "on" : ""}
+              onMouseEnter={() => setI(idx)}
+              onClick={() => run(r)}
+            >
               {r.title}
             </li>
           ))}

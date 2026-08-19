@@ -50,6 +50,10 @@ export const NODES = [
   { id: "env:prod-eu", kind: "env", name: "Production-EU", production: true },
   { id: "env:staging", kind: "env", name: "Staging", production: false },
   { id: "env:dev", kind: "env", name: "Development", production: false },
+
+  { id: "dev:amira", kind: "maintainer", name: "Amira Chen", org: "harborline" },
+  { id: "dev:niko", kind: "maintainer", name: "Niko Vale", org: "harborline" },
+  { id: "org:harborline", kind: "org", name: "Harborline" },
 ];
 
 /** Directed toward production impact. */
@@ -96,8 +100,39 @@ export const EDGES = [
   ["svc:billing-worker", "env:staging", "deployed_to"],
   ["svc:merchant-portal", "env:staging", "deployed_to"],
   ["svc:mobile-api", "env:prod-us", "deployed_to"],
+
+  ["pkg:payments-lib", "dev:amira", "maintained_by"],
+  ["pkg:checkout-sdk", "dev:amira", "maintained_by"],
+  ["pkg:vulnerable-lib", "dev:niko", "maintained_by"],
+  ["pkg:http-client", "dev:niko", "maintained_by"],
+  ["pkg:auth-core", "dev:amira", "maintained_by"],
+  ["dev:amira", "org:harborline", "belongs_to"],
+  ["dev:niko", "org:harborline", "belongs_to"],
 ];
 
 export function nodeById(id) {
   return NODES.find((n) => n.id === id);
+}
+
+/** Collapse versions onto their package so the map stays readable. */
+export function displayId(id) {
+  const n = nodeById(id);
+  if (!n) return id;
+  if (n.kind === "version") return `pkg:${n.package}`;
+  return n.id;
+}
+
+export function displayEdges() {
+  const seen = new Set();
+  const out = [];
+  for (const [from, to, rel] of EDGES) {
+    const a = displayId(from);
+    const b = displayId(to);
+    if (a === b) continue;
+    const key = `${a}>${b}>${rel}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push([a, b, rel]);
+  }
+  return out;
 }

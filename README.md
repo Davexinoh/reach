@@ -20,11 +20,16 @@ Demo dataset is Harborline. Onboarding → **Demo dataset** → Map → pick the
 
 ⌘K opens Command. Try: `What critical vulnerabilities can reach production?`
 
-## How HydraDB is used
+## Architecture
 
-The product model is a graph: `affects`, `depends_on`, `uses`, `runs`, `contains`, `deployed_to`. Trace is reverse traversal from a CVE through versions to production.
+```
+Browser  →  Reach API (/api)  →  Reach engine
+                              →  HydraDB (optional, server-side only)
+```
 
-The UI computes reach from that model so the demo works without Docker. Optional: run the OS node and point `VITE_HYDRA_URL` at `http://127.0.0.1:8443` (`src/hydra.js`).
+HydraDB credentials never leave `server/hydra.mjs`. The browser calls `/api/trace`, `/api/simulate`, `/api/ingest`.
+
+Reach owns reachability and exposure. HydraDB stores the same relationships via the real OS HTTP API (`POST /v1/graphs/default/query`, integer node ids, OpenCypher). If the node is down, the seeded engine still traces — ingest returns `HYDRADB_UNAVAILABLE`.
 
 ```bash
 mkdir hydradb-data\store hydradb-data\cache

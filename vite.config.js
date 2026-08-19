@@ -1,8 +1,19 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { reachApi } from "./server/api.mjs";
 
-// https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: "reach-api",
+      configureServer(server) {
+        server.middlewares.use(reachApi());
+      },
+      configurePreviewServer(server) {
+        server.middlewares.use(reachApi());
+      },
+    },
+  ],
   server: { port: 5173, strictPort: true },
-})
+});
