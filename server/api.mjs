@@ -236,12 +236,19 @@ export function reachApi() {
             message: "HydraDB node is not reachable at HYDRA_URL.",
           });
         }
-        const result = await ingestGraph(g.nodes, g.edges);
-        if (session?.graph) {
-          session.graph.hydra = result;
-          saveSession(session);
+        try {
+          const result = await ingestGraph(g.nodes, g.edges);
+          if (session?.graph) {
+            session.graph.hydra = result;
+            saveSession(session);
+          }
+          return send(res, 200, result);
+        } catch (err) {
+          return send(res, 502, {
+            error: "HYDRADB_INGEST",
+            message: String(err.message || err),
+          });
         }
-        return send(res, 200, result);
       }
 
       send(res, 404, { error: "NOT_FOUND", message: `No Reach API at ${path}` });

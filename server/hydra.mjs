@@ -148,8 +148,8 @@ export async function hydraStats() {
 /** Reverse-traverse from a vulnerability through HydraDB OpenCypher. */
 export async function reverseReach(vulnId) {
   const res = await hydraQuery(
-    `MATCH (v {id: $id})<-[:AFFECTS]-(ver)
-     OPTIONAL MATCH (src)-[:DEPENDS_ON*0..6]->(ver)
+    `MATCH (v {id: $id})-[:AFFECTS]->(ver)
+     OPTIONAL MATCH (src)-[:DEPENDS_ON*1..6]->(ver)
      RETURN ver.id AS version, ver.name AS versionName,
             src.id AS source, src.name AS sourceName, src.kind AS sourceKind
      LIMIT 200`,
