@@ -1,29 +1,46 @@
 /**
  * Server-side HydraDB OS client.
- * Real HTTP API from hydra-db/hydradb: POST /v1/graphs/{graph}/query
+ * Real HTTP API: POST /v1/graphs/{graph}/query
  * Node ids must be non-negative integers. Credentials stay here.
  */
-const BASE = process.env.HYDRA_URL || "http://127.0.0.1:8443";
+const BASE = (process.env.HYDRA_URL || "http://127.0.0.1:8443").replace(/\/$/, "");
+const ADMIN = (process.env.HYDRA_ADMIN_URL || "").replace(/\/$/, "");
 const TOKEN = process.env.HYDRA_TOKEN || "local-development-token-32-bytes";
+
+export function hydraBase() {
+  return BASE;
+}
 
 export function nid(id) {
   let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 33 + id.charCodeAt(i)) >>> 0;
+  const s = String(id);
+  for (let i = 0; i < s.length; i++) h = (h * 33 + s.charCodeAt(i)) >>> 0;
   return (h % 800000) + 1;
 }
 
+function probeUrls() {
+  const urls = [];
+  if (ADMIN) urls.push(`${ADMIN}/readyz`);
+  urls.push(`${BASE}/healthz`);
+  urls.push(`${BASE}/readyz`);
+  if (!process.env.HYDRA_URL && !ADMIN) {
+    urls.push("http://127.0.0.1:9090/readyz");
+  } else if (BASE.endsWith(":8443")) {
+    urls.push(`${BASE.slice(0, -5)}9090/readyz`);
+  }
+  return [...new Set(urls)];
+}
+
 export async function hydraReady() {
-  try {
-    const r = await fetch("http://127.0.0.1:9090/readyz");
-    return r.ok;
-  } catch {
+  for (const url of probeUrls()) {
     try {
-      const r = await fetch(`${BASE}/healthz`);
-      return r.ok;
+      const r = await fetch(url, { signal: AbortSignal.timeout(3000) });
+      if (r.ok) return true;
     } catch {
-      return false;
+      /* try next */
     }
   }
+  return false;
 }
 
 export async function hydraQuery(cypher, parameters = {}) {
@@ -34,11 +51,21 @@ export async function hydraQuery(cypher, parameters = {}) {
       "X-Graph-Namespace": "default",
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ cell_id: "cell-0", query: cypher, parameters }),
+    body: JSON.stringify({
+      cell_id: "cell-0",
+      query: cypher,
+      parameters,
+      consistency: "causal",
+    }),
+    signal: AbortSignal.timeout(45000),
   });
   const text = await r.text();
   if (!r.ok) throw new Error(`HydraDB ${r.status}: ${text.slice(0, 400)}`);
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`HydraDB returned non-JSON: ${text.slice(0, 200)}`);
+  }
 }
 
 const REL = {
@@ -52,34 +79,83 @@ const REL = {
   belongs_to: "BELONGS_TO",
 };
 
-function esc(s) {
-  return String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+function chunks(arr, n) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+  return out;
 }
 
 export async function ingestGraph(nodes, edges) {
-  let statements = 0;
+  const byId = new Map((nodes || []).map((n) => [n.id, n]));
+  const nodeRows = (nodes || []).map((n) => ({
+    id: nid(n.id),
+    kind: String(n.kind || "node"),
+    name: String(n.name || n.id),
+  }));
+
   let last = null;
-  for (const [from, to, rel] of edges) {
-    const type = REL[rel];
-    if (!type) continue;
-    const a = nodes.find((n) => n.id === from);
-    const b = nodes.find((n) => n.id === to);
-    if (!a || !b) continue;
+  for (const batch of chunks(nodeRows, 80)) {
     last = await hydraQuery(
-      `CREATE (s:Node {id: ${nid(from)}, kind: '${esc(a.kind)}', name: '${esc(a.name)}'})-[:${type}]->(t:Node {id: ${nid(to)}, kind: '${esc(b.kind)}', name: '${esc(b.name)}'})`
+      `UNWIND $rows AS row
+       MERGE (n:Node {id: row.id})
+       SET n.kind = row.kind, n.name = row.name`,
+      { rows: batch }
     );
-    statements += 1;
   }
+
+  const grouped = new Map();
+  for (const [from, to, rel] of edges || []) {
+    const type = REL[rel];
+    if (!type || !byId.has(from) || !byId.has(to)) continue;
+    if (!grouped.has(type)) grouped.set(type, []);
+    grouped.get(type).push({ sid: nid(from), tid: nid(to) });
+  }
+
+  let statements = 0;
+  for (const [type, rows] of grouped) {
+    for (const batch of chunks(rows, 80)) {
+      last = await hydraQuery(
+        `UNWIND $rows AS row
+         MATCH (s:Node {id: row.sid}), (t:Node {id: row.tid})
+         MERGE (s)-[:${type}]->(t)`,
+        { rows: batch }
+      );
+      statements += batch.length;
+    }
+  }
+
   return {
     statements,
+    nodes: nodeRows.length,
     bookmark: last?.bookmark || null,
     read_epoch: last?.read_epoch ?? null,
   };
 }
 
-export async function queryDepends(fromId) {
-  return hydraQuery(
-    "MATCH (a:Node {id: $id})-[:DEPENDS_ON*1..6]->(b:Node) RETURN b.id, b.name",
-    { id: nid(fromId) }
+export async function hydraStats() {
+  const res = await hydraQuery("MATCH (n:Node) RETURN count(n) AS nodes");
+  const rows = res?.rows || res?.data || res?.result || [];
+  const first = Array.isArray(rows) ? rows[0] : null;
+  const raw = first?.nodes ?? first?.[0] ?? first?.value ?? 0;
+  const nodes = typeof raw === "object" && raw && "value" in raw ? Number(raw.value) : Number(raw) || 0;
+  return { nodes, raw: res };
+}
+
+/** Reverse-traverse from a vulnerability through HydraDB OpenCypher. */
+export async function reverseReach(vulnId) {
+  const res = await hydraQuery(
+    `MATCH (v:Node {id: $id})<-[:AFFECTS]-(ver:Node)
+     OPTIONAL MATCH (src:Node)-[:DEPENDS_ON*0..6]->(ver)
+     RETURN ver.id AS version, ver.name AS versionName,
+            src.id AS source, src.name AS sourceName, src.kind AS sourceKind
+     LIMIT 200`,
+    { id: nid(vulnId) }
   );
+  return {
+    source: "hydradb",
+    vuln: vulnId,
+    query: "MATCH (v)<-[:AFFECTS]-(ver) OPTIONAL MATCH (src)-[:DEPENDS_ON*0..6]->(ver)",
+    rows: res?.rows || res?.data || [],
+    bookmark: res?.bookmark || null,
+  };
 }

@@ -14,7 +14,7 @@ export default function Settings() {
   return (
     <div className="page">
       <h1>Settings</h1>
-      <p className="sub">GitHub is the source of truth. HydraDB is optional durable storage.</p>
+      <p className="sub">GitHub is the source of truth. HydraDB is the durable graph the traces run against.</p>
       <div className="card">
         <h3>GitHub</h3>
         {me?.user ? (
@@ -36,7 +36,9 @@ export default function Settings() {
       <div className="card" style={{ marginTop: 12 }}>
         <h3>HydraDB</h3>
         <p className="sub">
-          {health?.hydra ? "Node reachable." : "Node not running. Graph still lives in the Reach workspace."}
+          {health?.hydra
+            ? `Node reachable at ${health.hydraUrl || "HYDRA_URL"}${health.hydraNodes != null ? ` · ${health.hydraNodes} nodes` : ""}.`
+            : "Node not reachable. Ingest cannot run until the HydraDB service is up."}
         </p>
         <p className="k">graph: {health?.graph || "none"}</p>
         <button

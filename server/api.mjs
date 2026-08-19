@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { command, events, packageStats, repoStats, simulateUpgrade, traceVulnerability } from "../src/data/engine.js";
 import { EDGES, NODES } from "../src/data/graph.js";
-import { hydraReady, ingestGraph } from "./hydra.mjs";
+import { hydraBase, hydraReady, hydraStats, ingestGraph, reverseReach } from "./hydra.mjs";
 import { createSession, destroySession, getSession, publicUrl, saveSession } from "./session.mjs";
 import { exchangeCode, githubRepos, githubUser } from "./github.mjs";
 import { buildWorkspaceGraph } from "./build-graph.mjs";
@@ -63,9 +63,20 @@ export function reachApi() {
     try {
       if (req.method === "GET" && path === "/api/health") {
         const hydra = await hydraReady();
+        let hydraNodes = null;
+        if (hydra) {
+          try {
+            hydraNodes = (await hydraStats()).nodes;
+          } catch {
+            hydraNodes = null;
+          }
+        }
         return send(res, 200, {
           ok: true,
           hydra,
+          hydraUrl: hydraBase(),
+          hydraNodes,
+          ingested: Boolean(session?.graph?.hydra || session?.demo && hydra),
           engine: "reach",
           githubConfigured: Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET),
           user: session?.user || null,
@@ -180,7 +191,15 @@ export function reachApi() {
         const vulns = g.nodes.filter((n) => n.kind === "vuln");
         const id = u.searchParams.get("vuln") || vulns[0]?.id;
         if (!id) return send(res, 200, { empty: true, paths: [], counts: { paths: 0, apps: 0, repos: 0, prodServices: 0 } });
-        return send(res, 200, traceVulnerability(id, g.edges, g.nodes));
+        const local = traceVulnerability(id, g.edges, g.nodes);
+        if (await hydraReady()) {
+          try {
+            local.hydra = await reverseReach(id);
+          } catch (err) {
+            local.hydra = { source: "hydradb", error: err.message };
+          }
+        }
+        return send(res, 200, local);
       }
 
       if (req.method === "GET" && path === "/api/events") {
@@ -217,6 +236,10 @@ export function reachApi() {
           });
         }
         const result = await ingestGraph(g.nodes, g.edges);
+        if (session?.graph) {
+          session.graph.hydra = result;
+          saveSession(session);
+        }
         return send(res, 200, result);
       }
 

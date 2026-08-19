@@ -19,5 +19,10 @@ services:
       GRAPH_AUTH_TOKEN_FILE: /data/auth-token
       GRAPH_ALLOW_PLAINTEXT: "true"
       RUST_MIN_STACK: "33554432"
+      GRAPH_HTTP_ADDR: 0.0.0.0:8443
+      GRAPH_ADMIN_ADDR: 0.0.0.0:9090
+      GRAPH_BOLT_ADDR: 0.0.0.0:7687
+      GRAPH_DATA_CACHE_BYTES: "134217728"
+      GRAPH_SPARSE_KERNEL: adjacency
     volumes:
       - ./hydradb-data:/data
