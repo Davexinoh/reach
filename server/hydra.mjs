@@ -98,7 +98,7 @@ export async function ingestGraph(nodes, edges) {
     last = await hydraQuery(
       `UNWIND $rows AS row
        MERGE (n {id: row.id})
-       SET n.kind = row.kind, n.name = row.name`,
+       SET n:Node, n.kind = row.kind, n.name = row.name`,
       { rows: batch }
     );
   }
