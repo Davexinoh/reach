@@ -124,11 +124,20 @@
 .map-wrap { position: relative; flex: 1; min-height: 0; overflow: hidden; }
 .map-wrap .canvas, .mini-graph .canvas { position: relative; z-index: 1; }
 .lenses, .float, .pathbar, .panel { z-index: 2; }
-.canvas {
+.canvas-scroll {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
-  background: transparent;
+  overflow: auto;
 }
+.canvas {
+  width: 100%;
+  min-height: 100%;
+  background: transparent;
+  display: block;
+}
+.mini-graph .canvas-scroll { height: 100%; }
 .map-wrap { background: var(--bg); }
 .field {
   pointer-events: none;
