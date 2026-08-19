@@ -163,11 +163,26 @@ export async function reverseReach(vulnId) {
       : Number(ver.version ?? ver[0]?.value ?? ver[0]);
     if (!Number.isFinite(vid)) continue;
     const name = ver.versionName?.value ?? ver.versionName ?? null;
-    const deps = await hydraQuery(
-      "MATCH (ver {id: $vid})<-[:DEPENDS_ON*1..6]-(src) RETURN src.id AS source, src.name AS sourceName, src.kind AS sourceKind LIMIT 80",
-      { vid }
-    );
-    const depRows = queryRows(deps);
+    const seen = new Set([vid]);
+    let frontier = [vid];
+    const depRows = [];
+    for (let hop = 0; hop < 6 && frontier.length; hop++) {
+      const next = [];
+      for (const at of frontier) {
+        const deps = await hydraQuery(
+          "MATCH (src)-[:DEPENDS_ON]->(ver {id: $vid}) RETURN src.id AS source, src.name AS sourceName, src.kind AS sourceKind LIMIT 80",
+          { vid: at }
+        );
+        for (const d of queryRows(deps)) {
+          const sid = Number(d.source?.value ?? d.source);
+          if (!Number.isFinite(sid) || seen.has(sid)) continue;
+          seen.add(sid);
+          next.push(sid);
+          depRows.push(d);
+        }
+      }
+      frontier = next;
+    }
     if (!depRows.length) {
       rows.push({ version: vid, versionName: name, source: null, sourceName: null, sourceKind: null });
       continue;
@@ -185,7 +200,7 @@ export async function reverseReach(vulnId) {
   return {
     source: "hydradb",
     vuln: vulnId,
-    query: "MATCH (v)-[:AFFECTS]->(ver); MATCH (ver)<-[:DEPENDS_ON*1..6]-(src)",
+    query: "MATCH (v)-[:AFFECTS]->(ver); hop MATCH (src)-[:DEPENDS_ON]->(ver)",
     rows,
     bookmark: affected?.bookmark || null,
   };
