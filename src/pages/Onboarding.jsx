@@ -13,17 +13,11 @@ const STEPS = [
 export default function Onboarding({ go }) {
   const [phase, setPhase] = useState(0);
   const [done, setDone] = useState(0);
-  const [note, setNote] = useState("");
   const [hydra, setHydra] = useState(null);
+  const [blocked, setBlocked] = useState(null);
 
-  function start(kind) {
-    if (kind === "github") {
-      setNote("GitHub OAuth is not configured for this hackathon build. Loading the Harborline demo graph.");
-    } else if (kind === "upload") {
-      setNote("Lockfile upload uses the same Harborline seed for this demo.");
-    } else {
-      setNote("");
-    }
+  function startDemo() {
+    setBlocked(null);
     setPhase(1);
     let i = 0;
     const t = setInterval(() => {
@@ -45,12 +39,28 @@ export default function Onboarding({ go }) {
       <div className="onboard">
         <div className="brand">REACH</div>
         <h1>Connect your software graph</h1>
-        <p className="sub">Judges: use the demo. GitHub sign-in is stubbed for this event.</p>
-        <button className="choice" onClick={() => start("github")}>Sign in with GitHub</button>
-        <button className="choice" onClick={() => start("upload")}>Upload repository</button>
-        <button className="choice" onClick={() => start("demo")}>Explore demo graph</button>
-        <button className="btn primary" style={{ marginTop: 16 }} onClick={() => start("demo")}>
-          Build my graph
+        <p className="sub">This build ships a seeded Harborline graph. GitHub OAuth is not implemented.</p>
+        <button className="choice" onClick={() => setBlocked("github")}>
+          Sign in with GitHub
+          <div className="k">Not wired in this submission</div>
+        </button>
+        <button className="choice" onClick={() => setBlocked("upload")}>
+          Upload lockfile
+          <div className="k">Not wired in this submission</div>
+        </button>
+        <button className="choice" onClick={startDemo}>
+          Explore demo graph
+          <div className="k">Harborline seed · works without GitHub</div>
+        </button>
+        {blocked && (
+          <p className="sub">
+            {blocked === "github"
+              ? "GitHub login is not connected. Same graph for every visitor because there is no OAuth. Use Explore demo graph."
+              : "Lockfile upload is not connected. Use Explore demo graph."}
+          </p>
+        )}
+        <button className="btn primary" style={{ marginTop: 16 }} onClick={startDemo}>
+          Explore demo graph
         </button>
       </div>
     );
@@ -60,7 +70,7 @@ export default function Onboarding({ go }) {
     return (
       <div className="onboard">
         <h1>Building graph</h1>
-        {note && <p className="sub">{note}</p>}
+        <p className="sub">Loading the Harborline demo seed.</p>
         <ul className="progress">
           {STEPS.map((s, i) => (
             <li key={s} className={i < done ? "done" : ""}>
@@ -76,7 +86,7 @@ export default function Onboarding({ go }) {
     <div className="onboard">
       <h1>Your graph is ready.</h1>
       <p className="sub">
-        Harborline demo · {hydra === true ? "written to HydraDB" : "local engine (HydraDB node not running)"}
+        Harborline demo · {hydra === true ? "also written to HydraDB" : "Reach engine (HydraDB node not running)"}
       </p>
       <button className="btn primary" onClick={() => go("/app/map")}>Explore Reach</button>
     </div>
